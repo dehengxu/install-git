@@ -1,0 +1,120 @@
+#!/usr/bin/env bash
+
+if [[ -z $1 ]];then
+	echo "请输入版本号: "
+	echo "install-git 2.29.0 b"
+	echo "或者 -h|--help"
+	echo "install-git -h"
+	exit 1
+fi
+
+is_help=0
+if [[ $1=="-h" || $1=="--help" ]];then
+	is_help=1
+fi
+
+if [[ -z $2 || $is_help -eq 1 ]];then
+	echo "请输入命令类型:"
+	echo ""
+	echo "install-git 2.29.0 \$CMD"
+	echo ""
+	echo "安装路径为: /usr/local/git-v\${版本号}"
+	echo "命令类型："
+	echo "f: 下载最新仓库"
+	echo "b: 重新构建"
+	echo "c: 清理构建"
+	echo "l: 链接到 /usr/local/bin/git"
+	echo "ul: 删除链接"
+	echo "ui: 删除指定版本二进制"
+	echo "keychain: 编译 git-credential-osxkeychain，并安装到 /usr/local/bin"
+    echo "================="
+    echo "CPU:"
+    echo "$(sysctl -n machdep.cpu.brand_string)"
+    echo "core: $(sysctl -n machdep.cpu.core_count)"
+    echo "thread: $(sysctl -n machdep.cpu.thread_count)"
+	exit 1
+fi
+
+
+if [[ -d .git ]];then
+	echo "switch to v$1"
+	git checkout -b build/v$1 v$1 || echo "v$1 maybe exist." && git checkout build/v$1
+else
+	echo "Current path is not git repo, please clone from https://github.com/git/git.git"
+fi
+
+function build_git() {
+	opt=/usr/local/opt
+	autoconf
+	# CC=clang CXX=clang++ 
+    
+    if [[ $(uname) == "Linux"  ]];then
+        cpun=$(cat /proc/cpuinfo | grep "physical id" | sort | uniq | wc -l)
+    elif [[ $(uname) == "Darwin" ]];then
+        cpun=$(sysctl -n machdep.cpu.thread_count)
+    fi
+    echo "cpu core number :$cpun"
+	./configure --with-iconv=$opt/libiconv --with-curl --with-expat=$opt/expat  --prefix=/usr/local/git-v$1 --mandir=/usr/local/git-v$1/share/man && make -j$cpun && sudo make install && sudo soft_link "git-v$1"
+}
+
+function soft_link() {
+	if [[ -z $1 ]];then
+		echo "input version like: v2.25.1"
+	fi
+	echo soft linking "$1"
+	ln -sf /usr/local/$1/bin/git /usr/local/bin/git
+	ln -sf /usr/local/$1/bin/git /usr/local/bin/git-receive-pack
+	ln -sf /usr/local/$1/bin/git /usr/local/bin/git-upload-archive
+	ln -sf /usr/local/$1/bin/git /usr/local/bin/git-upload-pack
+	ln -sf /usr/local/$1/bin/git-shell /usr/local/bin/git-shell
+	ln -sf /usr/local/$1/bin/git-cvsserver /usr/local/bin/git-cvsserver
+}
+
+function remove_link() {
+	sudo rm /usr/local/bin/git
+	sudo rm /usr/local/bin/git-receive-pack
+	sudo rm /usr/local/bin/git-upload-archive
+	sudo rm /usr/local/bin/git-upload-pack
+}
+
+function install_git_keychain() {
+	echo "keychain"
+	if [[ -z $1 ]];then
+		echo "请输入 git 源码路径."
+		return 1
+	fi
+	root_dir=$1
+	kcpath=$root_dir/contrib/credential/osxkeychain
+	cd $kcpath && make
+	cd $root_dir
+	ls -lsh $kcpath/git-credential-osxkeychain
+	[ -f $kcpath/git-credential-osxkeychain ] && sudo cp -f $kcpath/git-credential-osxkeychain /usr/local/bin && echo "copied to /usr/local/bin"
+	git config --global credential.helper osxkeychain
+}
+
+if [[ $2 == "b" ]];then
+	build_git $1
+elif [[ $2 == "f" ]];then
+	[ ! -d ./.git ] && git init
+	if [[ ! $(git remote add origin https://github.com/git/git.git) ]];then 
+		echo "origin exist."
+		 # git remote rename origin origin-prev
+		 # git remote add origin https://github.com/git/git.git
+	 else
+		 echo "Init new repo: https://github.com/git/git.git"
+	fi
+	
+	git fetch origin -a
+elif [[ $2 == "c" ]];then
+	make distclean
+elif [[ $2 == "l" ]];then
+	soft_link "git-v$1"
+elif [[ $2 == "ul" ]];then
+	remove_link
+elif [[ $2 == "ui" ]];then
+	sudo rm -r /usr/local/git-v$1
+elif [[ $2 == "keychain" ]];then
+	
+	install_git_keychain $PWD
+
+fi
