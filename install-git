@@ -9,7 +9,7 @@ if [[ -z $1 ]];then
 fi
 
 is_help=0
-if [[ $1=="-h" || $1=="--help" ]];then
+if [[ $1 == "-h" || $1 == "--help" ]];then
 	is_help=1
 fi
 
